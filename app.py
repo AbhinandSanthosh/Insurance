@@ -1,10 +1,64 @@
+# app.py - Insurance Charges Prediction (robust loader + debug)
+import os
+import traceback
+
 import streamlit as st
 import pandas as pd
-import joblib
 
-# Load trained model
-model = joblib.load("insurance_model.pkl")
+# Page config (call before other Streamlit calls that affect layout)
+st.set_page_config(page_title="Insurance Charges Prediction", layout="wide")
 
+# --- Optional: small debug toggle (uncheck in production) ---
+show_debug = st.sidebar.checkbox("Show debug info", value=False)
+
+if show_debug:
+    st.markdown("### DEBUG: runtime info")
+    st.write("app __file__:", os.path.abspath(__file__))
+    st.write("cwd:", os.getcwd())
+    st.write("files in cwd:", sorted(os.listdir(os.getcwd())))
+
+# --- Model loading (try cloudpickle, fall back to joblib with clear errors) ---
+MODEL_FILENAME = "insurance_model.pkl"
+model = None
+model_path = os.path.join(os.getcwd(), MODEL_FILENAME)
+
+if not os.path.exists(model_path):
+    st.error(f"Model file not found: `{MODEL_FILENAME}`. Please upload it to the app folder.")
+    if show_debug:
+        st.stop()
+    else:
+        st.stop()
+
+# Try to load with cloudpickle (more robust across environments)
+try:
+    import cloudpickle
+
+    with open(model_path, "rb") as f:
+        model = cloudpickle.load(f)
+    if show_debug:
+        st.success("Model loaded with cloudpickle.")
+except Exception as e_cloud:
+    # If cloudpickle fails, try joblib as a fallback, but show traceback
+    st.warning("cloudpickle load failed, trying joblib.load as a fallback...")
+    if show_debug:
+        st.text("cloudpickle error:")
+        st.text(traceback.format_exc())
+
+    try:
+        import joblib
+
+        model = joblib.load(model_path)
+        if show_debug:
+            st.success("Model loaded with joblib.")
+    except Exception as e_joblib:
+        st.error("Failed to load model using both cloudpickle and joblib. See details below.")
+        st.text("cloudpickle error:")
+        st.text("".join(traceback.format_exception(None, e_cloud, e_cloud.__traceback__)))
+        st.text("joblib error:")
+        st.text("".join(traceback.format_exception(None, e_joblib, e_joblib.__traceback__)))
+        st.stop()
+
+# --- App UI ---
 st.title("Insurance Charges Prediction")
 st.write("This app predicts medical insurance charges based on user details.")
 
@@ -44,15 +98,12 @@ st.write(input_data)
 
 # -------- Prediction --------
 if st.button("Predict Insurance Charge"):
-    prediction = model.predict(input_data)[0]
-    st.subheader("Predicted Insurance Charge")
-    st.success(f"${prediction:,.2f}")
-
-    # DEBUG BLOCK - remove after verifying
-import os, streamlit as st
-st.set_page_config(page_title="DEBUG - Insurance App")
-st.markdown("## DEBUG: This is the Insurance app")
-st.write("app __file__:", os.path.abspath(__file__))
-st.write("cwd:", os.getcwd())
-st.write("files in cwd:", sorted(os.listdir(os.getcwd())))
-st.stop()   # comment out after confirming
+    try:
+        prediction = model.predict(input_data)[0]
+        st.subheader("Predicted Insurance Charge")
+        st.success(f"${prediction:,.2f}")
+    except Exception as e:
+        st.error("Prediction failed. See error details below.")
+        st.text("".join(traceback.format_exception(None, e, e.__traceback__)))
+        if show_debug:
+            st.stop()
